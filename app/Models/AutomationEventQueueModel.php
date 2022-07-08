@@ -2,9 +2,6 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Model;
-
 /**
  * Field              Type                 Collation        Null    Key     Default              Extra           Privileges                       Comment
  * -----------------  -------------------  ---------------  ------  ------  -------------------  --------------  -------------------------------  ---------
@@ -30,15 +27,8 @@ use Illuminate\Database\Eloquent\Model;
  * whatType           varchar(50)          utf8_general_ci  YES             (NULL)                               select,insert,update,references
  * createTimestamp    timestamp            (NULL)           NO      MUL     current_timestamp()                  select,insert,update,references
  */
-class AutomationEventQueue extends Model
+class AutomationEventQueueModel extends BaseModel
 {
-    use HasFactory;
-
-    /**
-     * @inheritdoc
-     */
-    const CREATED_AT = 'createTimestamp';
-
     /**
      * @inheritdoc
      */
