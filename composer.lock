@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "4f17cb4634c65116d6dd4c9adf223cde",
+    "content-hash": "96494b79bc36a2386d10bb09cec89950",
     "packages": [
         {
             "name": "asm89/stack-cors",
@@ -4291,16 +4291,16 @@
         },
         {
             "name": "psy/psysh",
-            "version": "v0.11.6",
+            "version": "v0.11.7",
             "source": {
                 "type": "git",
                 "url": "https://github.com/bobthecow/psysh.git",
-                "reference": "3f5b5f8aaa979fbd0d1783173f4c82ad529fe621"
+                "reference": "77fc7270031fbc28f9a7bea31385da5c4855cb7a"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/bobthecow/psysh/zipball/3f5b5f8aaa979fbd0d1783173f4c82ad529fe621",
-                "reference": "3f5b5f8aaa979fbd0d1783173f4c82ad529fe621",
+                "url": "https://api.github.com/repos/bobthecow/psysh/zipball/77fc7270031fbc28f9a7bea31385da5c4855cb7a",
+                "reference": "77fc7270031fbc28f9a7bea31385da5c4855cb7a",
                 "shasum": ""
             },
             "require": {
@@ -4361,9 +4361,9 @@
             ],
             "support": {
                 "issues": "https://github.com/bobthecow/psysh/issues",
-                "source": "https://github.com/bobthecow/psysh/tree/v0.11.6"
+                "source": "https://github.com/bobthecow/psysh/tree/v0.11.7"
             },
-            "time": "2022-07-03T16:40:23+00:00"
+            "time": "2022-07-07T13:49:11+00:00"
         },
         {
             "name": "ralouphie/getallheaders",
@@ -5549,6 +5549,62 @@
                 }
             ],
             "time": "2020-09-28T06:39:44+00:00"
+        },
+        {
+            "name": "ss-jablan/sharp-eloquent-models",
+            "version": "dev-master",
+            "source": {
+                "type": "git",
+                "url": "git@github.com:ss-jablan/sharp-eloquent-models.git",
+                "reference": "c7a5e0fa94b9fd1ba010b48a250017d01eb129cc"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/ss-jablan/sharp-eloquent-models/zipball/c7a5e0fa94b9fd1ba010b48a250017d01eb129cc",
+                "reference": "c7a5e0fa94b9fd1ba010b48a250017d01eb129cc",
+                "shasum": ""
+            },
+            "require": {
+                "php": "^7.3|^8.0"
+            },
+            "require-dev": {
+                "facade/ignition": "^2.5",
+                "fakerphp/faker": "^1.9.1",
+                "fruitcake/laravel-cors": "^2.0",
+                "guzzlehttp/guzzle": "^7.0.1",
+                "laravel-frontend-presets/argon": "^1.1",
+                "laravel-json-api/laravel": "^2.4",
+                "laravel-json-api/testing": "^1.1",
+                "laravel/framework": "^8.75",
+                "laravel/sail": "^1.0.1",
+                "laravel/sanctum": "^2.11",
+                "laravel/tinker": "^2.5",
+                "mockery/mockery": "^1.4.4",
+                "nunomaduro/collision": "^5.10",
+                "phpunit/phpunit": "^9.5.10"
+            },
+            "default-branch": true,
+            "type": "package",
+            "autoload": {
+                "psr-4": {
+                    "Sharp\\": "src/Sharp/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "Tests\\": "tests/"
+                }
+            },
+            "description": "Eloquent models for SharpSpring",
+            "keywords": [
+                "database",
+                "models"
+            ],
+            "support": {
+                "source": "https://github.com/ss-jablan/sharp-eloquent-models/tree/master",
+                "issues": "https://github.com/ss-jablan/sharp-eloquent-models/issues"
+            },
+            "time": "2022-07-11T15:03:19+00:00"
         },
         {
             "name": "swiftmailer/swiftmailer",
@@ -8750,7 +8806,9 @@
     ],
     "aliases": [],
     "minimum-stability": "dev",
-    "stability-flags": [],
+    "stability-flags": {
+        "ss-jablan/sharp-eloquent-models": 20
+    },
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
@@ -8758,5 +8816,5 @@
         "ext-json": "*"
     },
     "platform-dev": [],
-    "plugin-api-version": "2.3.0"
+    "plugin-api-version": "2.2.0"
 }
