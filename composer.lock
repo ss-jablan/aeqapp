@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "96494b79bc36a2386d10bb09cec89950",
+    "content-hash": "aed0c17a5e35f855a310cd534f13a57c",
     "packages": [
         {
             "name": "asm89/stack-cors",
@@ -121,6 +121,66 @@
                 }
             ],
             "time": "2021-08-15T20:50:18+00:00"
+        },
+        {
+            "name": "chaoticwave/blue-velvet",
+            "version": "1.1.3",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/ChaoticWave/BlueVelvet.git",
+                "reference": "4ca2d390f6be0d5344ddf1e656021f4836037244"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/ChaoticWave/BlueVelvet/zipball/4ca2d390f6be0d5344ddf1e656021f4836037244",
+                "reference": "4ca2d390f6be0d5344ddf1e656021f4836037244",
+                "shasum": ""
+            },
+            "require": {
+                "ext-curl": "*",
+                "php": "^7.2.2"
+            },
+            "require-dev": {
+                "beyondcode/laravel-dump-server": "^1.0",
+                "elasticsearch/elasticsearch": "~2.0",
+                "filp/whoops": "^2.0",
+                "fzaninotto/faker": "^1.4",
+                "laravel/lumen-framework": "5.8.*",
+                "mockery/mockery": "^1.0",
+                "nunomaduro/collision": "^2.0",
+                "phpunit/phpunit": "^7.5"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-develop": "1.x-dev"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "ChaoticWave\\BlueVelvet\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Jerry Ablan",
+                    "email": "jerryablan@gmail.com"
+                }
+            ],
+            "description": "Laravel-Friendly PHP Utility Library",
+            "keywords": [
+                "laravel",
+                "utility"
+            ],
+            "support": {
+                "issues": "https://github.com/ChaoticWave/BlueVelvet/issues",
+                "source": "https://github.com/ChaoticWave/BlueVelvet/tree/1.1.3"
+            },
+            "time": "2019-05-26T20:41:19+00:00"
         },
         {
             "name": "cloudcreativity/json-api-testing",
