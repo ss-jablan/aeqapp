@@ -6,7 +6,9 @@ use App\Automation\AutomationEventMap;
 use App\Automation\Constants\AutomationEventType;
 use App\Exceptions\AutomationException;
 use App\Exceptions\RetryableAutomationException;
+use App\Libraries\EmailDelivery;
 use Exception;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\ServiceProvider;
@@ -231,6 +233,175 @@ class AeqServiceProvider extends ServiceProvider
         }
     }
 
+    /**
+     * Send an email to a single lead
+     *
+     * @param array $event
+     *
+     * @throws AutomationException
+     * @throws RetryableAutomationException
+     * @throws Exception
+     */
+    public function runSendEmail($event)
+    {
+        $isValid = $this->isSendEmailEventValid($event);
+        if (!$isValid) {
+            return;
+        }
+
+        $leadID = $event['triggerData']['whoID'];
+        $companyID = $event['workflowEventData']['email']['companyProfileID'];
+        $metadata = [
+            'co'         => $companyID,
+            'l'          => $leadID,
+            'identifier' => 'eventRunner::runSendEmail',
+            'details'    => json_encode($event),
+        ];
+
+        if (isset($event['workflowEventData']['toReferrer']) && $event['workflowEventData']['toReferrer']) {
+            $leadID = $this->leadReferralModel->getReferrerID($companyID, $leadID);
+            if (!$leadID) {
+                Log::debug(
+                    'automation event did not send email (referring lead not found)',
+                    'AutomationEventRunner->runSendEmail',
+                    $metadata
+                );
+
+                return;
+            }
+        }
+        $emailID = $event['workflowEventData']['email']['id'] ?? null;
+        $workflowID = $event['workflowEventData']['workflowID'] ?? null;
+
+        // get the lead who the email is being sent to
+        $email = $this->emailModel->getByID($companyID, $emailID);
+
+        if (empty($email) || $email['isActive'] != 1) {
+            Log::debug(
+                'automation event did not send email (email not found)',
+                'AutomationEventRunner->runSendEmail',
+                $metadata
+            );
+            if (empty($email['isActive'])) {
+                throw new AutomationException('email is not active');
+            } else {
+                throw new RetryableAutomationException('email not found');
+            }
+        }
+
+        $lead = $this->leadModel->getByLeadID($leadID, $companyID);
+        if (!$lead) {
+            Log::debug(
+                'automation event did not send email (lead not found)',
+                'AutomationEventRunner->runSendEmail',
+                $metadata
+            );
+
+            return;
+        }
+
+        $workflow = $this->workflowModel->get($companyID, $workflowID);
+        $sendDuplicate = $email['allowDuplicateSend'] || !empty($workflow['testMode']);
+
+        $unprocessedEmail = LoadModel::emailDao()->get($companyID, $emailID);
+
+        //TODO: read some extra workflowEventData flag for bulk action groups scheduled to lists here
+        $companyProfile = LoadModel::companyProfile()->get($companyID);
+        if ($companyProfile['managedBy'] === $companyProfile['id'] && $companyProfile['isReseller']) {
+            $companyType = SendOptions::COMPANY_TYPE_AGENCY;
+        } elseif ($companyProfile['managedBy'] === $companyProfile['id'] && !$companyProfile['isReseller']) {
+            $companyType = SendOptions::COMPANY_TYPE_DIRECT_CLIENT;
+        } else {
+            $companyType = SendOptions::COMPANY_TYPE_AGENCY_CLIENT;
+        }
+
+        $offering = new Offering($companyProfile['productOffering']);
+        $isFreeOffering = $offering->hasOffering(Offering::FREE_OFFERING_MASK);
+        $primaryOffering = $offering->getPrimaryOffering();
+
+        $optionsParams = [
+            'workflowID'        => $workflowID,
+            'sendDuplicate'     => $sendDuplicate,
+            'authorID'          => $event['triggerData']['userID'] ?? null,
+            'useCustomSmtp'     => $event['triggerData']['useCustomSmtp'] ?? null,
+            'isFreeOffering'    => $isFreeOffering,
+            'companyType'       => $companyType,
+            'offering'          => $primaryOffering,
+            'suppressAtRisk'    => $event['workflowEventData']['suppressAtRisk'] ?? false,
+            'suppressUnengaged' => $event['workflowEventData']['suppressUnengaged'] ?? true,
+        ];
+
+        $options = new SendOptions('lead', $optionsParams);
+        $recipient = new SingleLeadRecipient($companyID, $leadID);
+
+        $cacheModel = LoadModel::cache();
+        $sendDupeCacheKey = "automationSendDupe::$companyID:$leadID:$emailID";
+        try {
+            if (!$sendDuplicate) {
+                $lock = $cacheModel->add($sendDupeCacheKey, 1);
+                if (!$lock) {
+                    $memcachedResultCode = $cacheModel->memcached->getResultCode();
+                    if ($memcachedResultCode === Memcached::RES_NOTSTORED
+                        || $memcachedResultCode === Memcached::RES_DATA_EXISTS
+                    ) {
+                        throw new AutomationException('duplicate single lead email send');
+                    }
+
+                    App::get()->logger->error(
+                        'failed to add lock',
+                        [
+                            'cacheKey'   => $sendDupeCacheKey,
+                            'lock'       => $lock,
+                            'resultCode' => $memcachedResultCode,
+                        ]
+                    );
+                }
+            }
+
+            $this->emailDelivery->sendEmailToLead($companyID, $unprocessedEmail, $recipient, $options);
+        } catch (RetryableAutomationException|RetryableMailshipException $e) {
+            $this->logEmailSendErrorAutomationEvent(
+                $companyID,
+                $options->emailJobID,
+                Mailer::RESULT_FAILED_MAILSHIP,
+                $e,
+                LogEmailError::NOTIFY,
+                $leadID
+            );
+            throw new RetryableAutomationException('Error sending email to lead', 0, $e);
+        } catch (AutomationException $e) {
+            // catch just so that we re-throw so that it doesn't get caught below
+            throw $e;
+        } catch (MailshipException $e) {
+            $severity = $e->getCode() == MailshipException::NOT_ELIGIBLE
+                ? LogEmailError::SILENT : LogEmailError::NOTIFY;
+            $this->logEmailSendErrorAutomationEvent(
+                $companyID,
+                $options->emailJobID,
+                Mailer::RESULT_FAILED_MAILSHIP,
+                $e,
+                $severity,
+                $leadID
+            );
+            throw new AutomationException($e->getMessage(), 0, $e);
+        } catch (RuntimeException $e) {
+            $this->logEmailSendErrorAutomationEvent(
+                $companyID,
+                $options->emailJobID,
+                Mailer::RESULT_FAILED,
+                $e,
+                LogEmailError::NOTIFY,
+                $leadID
+            );
+            throw new RetryableAutomationException('hit runtime exception', 0, $e);
+        }
+        finally {
+            if (!$sendDuplicate) {
+                $cacheModel->kill($sendDupeCacheKey);
+            }
+        }
+    }
+
 //    /**
 //     * @param array $event
 //     *
@@ -307,219 +478,6 @@ class AeqServiceProvider extends ServiceProvider
 //        return false;
 //    }
 
-//    /**
-//     * Send an email to a single lead
-//     *
-//     * @param array $event
-//     *
-//     * @throws AutomationException
-//     * @throws RetryableAutomationException
-//     * @throws Exception
-//     */
-//    public function runSendEmail($event)
-//    {
-//        $isValid = $this->isSendEmailEventValid($event);
-//        if (!$isValid) {
-//            return;
-//        }
-//
-//        $leadID = $event['triggerData']['whoID'];
-//        $companyID = $event['workflowEventData']['email']['companyProfileID'];
-//        $metadata = [
-//            'co'         => $companyID,
-//            'l'          => $leadID,
-//            'identifier' => 'eventRunner::runSendEmail',
-//            'details'    => json_encode($event),
-//        ];
-//
-//        if (isset($event['workflowEventData']['toReferrer']) && $event['workflowEventData']['toReferrer']) {
-//            $leadID = $this->leadReferralModel->getReferrerID($companyID, $leadID);
-//            if (!$leadID) {
-//                Log::debug(
-//                    'automation event did not send email (referring lead not found)',
-//                    'AutomationEventRunner->runSendEmail',
-//                    $metadata
-//                );
-//
-//                return;
-//            }
-//        }
-//        $emailID = $event['workflowEventData']['email']['id'] ?? null;
-//        $workflowID = $event['workflowEventData']['workflowID'] ?? null;
-//
-//        // get the lead who the email is being sent to
-//        $email = $this->emailModel->getByID($companyID, $emailID);
-//
-//        if (empty($email) || $email['isActive'] != 1) {
-//            Log::debug(
-//                'automation event did not send email (email not found)',
-//                'AutomationEventRunner->runSendEmail',
-//                $metadata
-//            );
-//            if (empty($email['isActive'])) {
-//                throw new AutomationException('email is not active');
-//            } else {
-//                throw new RetryableAutomationException('email not found');
-//            }
-//        }
-//
-//        $lead = $this->leadModel->getByLeadID($leadID, $companyID);
-//        if (!$lead) {
-//            Log::debug(
-//                'automation event did not send email (lead not found)',
-//                'AutomationEventRunner->runSendEmail',
-//                $metadata
-//            );
-//
-//            return;
-//        }
-//
-//        $workflow = $this->workflowModel->get($companyID, $workflowID);
-//        $sendDuplicate = $email['allowDuplicateSend'] || !empty($workflow['testMode']);
-//
-//        $unprocessedEmail = LoadModel::emailDao()->get($companyID, $emailID);
-//
-//        //TODO: read some extra workflowEventData flag for bulk action groups scheduled to lists here
-//        $companyProfile = LoadModel::companyProfile()->get($companyID);
-//        if ($companyProfile['managedBy'] === $companyProfile['id'] && $companyProfile['isReseller']) {
-//            $companyType = SendOptions::COMPANY_TYPE_AGENCY;
-//        } elseif ($companyProfile['managedBy'] === $companyProfile['id'] && !$companyProfile['isReseller']) {
-//            $companyType = SendOptions::COMPANY_TYPE_DIRECT_CLIENT;
-//        } else {
-//            $companyType = SendOptions::COMPANY_TYPE_AGENCY_CLIENT;
-//        }
-//
-//        $offering = new Offering($companyProfile['productOffering']);
-//        $isFreeOffering = $offering->hasOffering(Offering::FREE_OFFERING_MASK);
-//        $primaryOffering = $offering->getPrimaryOffering();
-//
-//        $optionsParams = [
-//            'workflowID'        => $workflowID,
-//            'sendDuplicate'     => $sendDuplicate,
-//            'authorID'          => $event['triggerData']['userID'] ?? null,
-//            'useCustomSmtp'     => $event['triggerData']['useCustomSmtp'] ?? null,
-//            'isFreeOffering'    => $isFreeOffering,
-//            'companyType'       => $companyType,
-//            'offering'          => $primaryOffering,
-//            'suppressAtRisk'    => $event['workflowEventData']['suppressAtRisk'] ?? false,
-//            'suppressUnengaged' => $event['workflowEventData']['suppressUnengaged'] ?? true,
-//        ];
-//
-//        $options = new SendOptions('lead', $optionsParams);
-//        $recipient = new SingleLeadRecipient($companyID, $leadID);
-//
-//        $cacheModel = LoadModel::cache();
-//        $sendDupeCacheKey = "automationSendDupe::$companyID:$leadID:$emailID";
-//        try {
-//            if (!$sendDuplicate) {
-//                $lock = $cacheModel->add($sendDupeCacheKey, 1);
-//                if (!$lock) {
-//                    $memcachedResultCode = $cacheModel->memcached->getResultCode();
-//                    if ($memcachedResultCode === Memcached::RES_NOTSTORED
-//                        || $memcachedResultCode === Memcached::RES_DATA_EXISTS
-//                    ) {
-//                        throw new AutomationException('duplicate single lead email send');
-//                    }
-//
-//                    App::get()->logger->error(
-//                        'failed to add lock',
-//                        [
-//                            'cacheKey'   => $sendDupeCacheKey,
-//                            'lock'       => $lock,
-//                            'resultCode' => $memcachedResultCode,
-//                        ]
-//                    );
-//                }
-//            }
-//
-//            $this->emailDelivery->sendEmailToLead($companyID, $unprocessedEmail, $recipient, $options);
-//        } catch (RetryableAutomationException|RetryableMailshipException $e) {
-//            $this->logEmailSendErrorAutomationEvent(
-//                $companyID,
-//                $options->emailJobID,
-//                Mailer::RESULT_FAILED_MAILSHIP,
-//                $e,
-//                LogEmailError::NOTIFY,
-//                $leadID
-//            );
-//            throw new RetryableAutomationException('Error sending email to lead', 0, $e);
-//        } catch (AutomationException $e) {
-//            // catch just so that we re-throw so that it doesn't get caught below
-//            throw $e;
-//        } catch (MailshipException $e) {
-//            $severity = $e->getCode() == MailshipException::NOT_ELIGIBLE
-//                ? LogEmailError::SILENT : LogEmailError::NOTIFY;
-//            $this->logEmailSendErrorAutomationEvent(
-//                $companyID,
-//                $options->emailJobID,
-//                Mailer::RESULT_FAILED_MAILSHIP,
-//                $e,
-//                $severity,
-//                $leadID
-//            );
-//            throw new AutomationException($e->getMessage(), 0, $e);
-//        } catch (RuntimeException $e) {
-//            $this->logEmailSendErrorAutomationEvent(
-//                $companyID,
-//                $options->emailJobID,
-//                Mailer::RESULT_FAILED,
-//                $e,
-//                LogEmailError::NOTIFY,
-//                $leadID
-//            );
-//            throw new RetryableAutomationException('hit runtime exception', 0, $e);
-//        }
-//        finally {
-//            if (!$sendDuplicate) {
-//                $cacheModel->kill($sendDupeCacheKey);
-//            }
-//        }
-//    }
-//
-//    /**
-//     * Checks whether an event contains all of the proper fields for sending email.
-//     * This function treats all companies with custom SMTP delivery as having invalid events.
-//     *
-//     * @param array $event
-//     *
-//     * @return bool true if it is a valid event or false if not
-//     */
-//    private function isSendEmailEventValid(array $event): bool
-//    {
-//        if (!isset($event['workflowEventData'])
-//            || !isset($event['workflowEventData']['email'])
-//            || !isset($event['workflowEventData']['email']['companyProfileID'])
-//            || !isset($event['workflowEventData']['email']['id'])
-//            || !isset($event['triggerData'])
-//            || !isset($event['triggerData']['whoType'])
-//            || !isset($event['triggerData']['whoID'])
-//            || !isset($event['triggerData']['companyProfileID'])
-//            || $event['triggerData']['whoType'] != 'lead'
-//        ) {
-//            Log::error(
-//                'automation event failed to send email',
-//                'AutomationEventRunner->runSendEmail',
-//                [
-//                    'identifier' => 'eventRunner::runSendEmail',
-//                    'message'    => 'function call failed to parse',
-//                    'details'    => json_encode($event),
-//                ]
-//            );
-//
-//            return false;
-//        }
-//        $companyID = $event['workflowEventData']['email']['companyProfileID'];
-//
-//        // Don't process these automation events if they are forced to use Custom SMTP.
-//        // TODO: Support the use of Custom SMTP. (SRSP-38848 :alleg:)
-//        $forceCustomSmtp = LoadLibrary::emailDelivery()->useCustomSmtp($companyID);
-//        if ($forceCustomSmtp) {
-//            return false;
-//        }
-//
-//        return true;
-//    }
-//
 //    /**
 //     * Queues sending an email to a list (via an MQ payload)
 //     *
@@ -3521,8 +3479,55 @@ class AeqServiceProvider extends ServiceProvider
      */
     protected function isSystemList(int $companyID, int $listID): bool
     {
-        $list = ListModel::where(['companyProfileID' => $companyID, 'id' => $listID])->get();
+        $list = ListModel::companyProfileID($companyID)
+            ->where('id', $listID)
+            ->get();
 
         return ($list && !empty($list['isSystemList']));
     }
+
+    /**
+     * Checks whether an event contains all of the proper fields for sending email.
+     * This function treats all companies with custom SMTP delivery as having invalid events.
+     *
+     * @param array $event
+     *
+     * @return bool true if it is a valid event or false if not
+     */
+    private function isSendEmailEventValid(array $event): bool
+    {
+        if (!isset($event['workflowEventData'])
+            || !isset($event['workflowEventData']['email'])
+            || !isset($event['workflowEventData']['email']['companyProfileID'])
+            || !isset($event['workflowEventData']['email']['id'])
+            || !isset($event['triggerData'])
+            || !isset($event['triggerData']['whoType'])
+            || !isset($event['triggerData']['whoID'])
+            || !isset($event['triggerData']['companyProfileID'])
+            || $event['triggerData']['whoType'] != 'lead'
+        ) {
+            Log::error(
+                'automation event failed to send email',
+                [
+                    'identifier' => 'eventRunner::runSendEmail',
+                    'message'    => 'function call failed to parse',
+                    'event'      => $event,
+                ]
+            );
+
+            return false;
+        }
+
+        $companyID = Arr::get($event, 'workflowEventData.email.companyProfileID');
+
+        // Don't process these automation events if they are forced to use Custom SMTP.
+        // TODO: Support the use of Custom SMTP. (SRSP-38848 :alleg:)
+        $forceCustomSmtp = EmailDelivery::useCustomSmtp($companyID);
+        if ($forceCustomSmtp) {
+            return false;
+        }
+
+        return true;
+    }
+
 }
