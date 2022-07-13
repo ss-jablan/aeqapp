@@ -4,9 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreAutomationEventQueueRequest;
 use App\Http\Requests\UpdateAutomationEventQueueRequest;
-use App\Models\AutomationEventQueue;
+use Sharp\Models\Automation\AutomationEventQueueModel;
 
-class AutomationEventQueueController extends Controller
+class EventController extends Controller
 {
     /**
      * Display a listing of the resource.
@@ -43,11 +43,11 @@ class AutomationEventQueueController extends Controller
     /**
      * Display the specified resource.
      *
-     * @param \App\Models\AutomationEventQueue $automationEventQueue
+     * @param \Sharp\Models\Automation\AutomationEventQueueModel $automationEventQueue
      *
      * @return \Illuminate\Http\Response
      */
-    public function show(AutomationEventQueue $automationEventQueue)
+    public function show(AutomationEventQueueModel $automationEventQueue)
     {
         //
     }
@@ -55,7 +55,7 @@ class AutomationEventQueueController extends Controller
     /**
      * Show the form for editing the specified resource.
      *
-     * @param \App\Models\AutomationEventQueue $automationEventQueue
+     * @param \Sharp\Models\Automation\AutomationEventQueueModel $automationEventQueue
      *
      * @return \Illuminate\Http\Response
      */
@@ -68,7 +68,7 @@ class AutomationEventQueueController extends Controller
      * Update the specified resource in storage.
      *
      * @param \App\Http\Requests\UpdateAutomationEventQueueRequest $request
-     * @param \App\Models\AutomationEventQueue                     $automationEventQueue
+     * @param \Sharp\Models\Automation\AutomationEventQueueModel $automationEventQueue
      *
      * @return \Illuminate\Http\Response
      */
